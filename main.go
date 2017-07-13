@@ -34,11 +34,19 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"k8s.io/kube-state-metrics/collectors"
+
+	"github.com/mtojek/greenwall/middleware/application"
+	"github.com/mtojek/greenwall/middleware/httpserver"
+	"github.com/mtojek/greenwall/middleware/monitoring"
+	"strconv"
+	"time"
+	"github.com/mtojek/greenwall/middleware/healthcheck"
 )
 
 const (
 	metricsPath = "/metrics"
 	healthzPath = "/healthz"
+	dashboardPath = "/dashboard"
 )
 
 var (
@@ -239,6 +247,17 @@ func metricsServer(registry prometheus.Gatherer, port int) {
 	listenAddress := fmt.Sprintf(":%d", port)
 
 	glog.Infof("Starting metrics server: %s", listenAddress)
+	// Add dashboardPath
+	applicationConfiguration := new(application.Configuration)
+	applicationConfiguration.HostPort = strconv.Itoa(port)
+	monitoringConfiguration := new(monitoring.Configuration)
+	monitoringConfiguration.General = monitoring.General{ time.Minute, time.Minute, time.Minute}
+	healthcheck := healthcheck.NewHealthcheck(applicationConfiguration, monitoringConfiguration)
+	healthcheck.Start()
+	indexHandler := httpserver.NewIndexHandler(applicationConfiguration, monitoringConfiguration, healthcheck)
+	http.HandleFunc(dashboardPath, func(w http.ResponseWriter, r *http.Request){
+		indexHandler.ServeHTTP(w, r)
+	})
 	// Add metricsPath
 	http.Handle(metricsPath, promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	// Add healthzPath
